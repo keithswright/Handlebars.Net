@@ -1,10 +1,7 @@
-﻿using System;
+using System;
 using System.IO;
-using System.Linq;
 using System.Linq.Expressions;
-#if netstandard
 using System.Reflection;
-#endif
 
 namespace HandlebarsDotNet.Compiler
 {
@@ -22,6 +19,11 @@ namespace HandlebarsDotNet.Compiler
         {
         }
 
+        protected override Expression VisitBlockHelperExpression(BlockHelperExpression bhex)
+        {
+            return bhex;
+        }
+
         protected override Expression VisitStatementExpression(StatementExpression sex)
         {
             if (sex.Body is PartialExpression)
@@ -37,75 +39,62 @@ namespace HandlebarsDotNet.Compiler
         protected override Expression VisitPartialExpression(PartialExpression pex)
         {
             Expression bindingContext = CompilationContext.BindingContext;
-            if (pex.Argument != null)
+
+            var fb = new FunctionBuilder(CompilationContext.Configuration);
+            var partialBlockTemplate = pex.Fallback == null ? null : fb.Compile(new[] {pex.Fallback}, null, null);
+
+            if (pex.Argument != null || partialBlockTemplate != null)
             {
                 bindingContext = Expression.Call(
                     bindingContext,
                     typeof(BindingContext).GetMethod("CreateChildContext"),
-                    pex.Argument);
+                    pex.Argument ?? Expression.Constant(null),
+                    partialBlockTemplate ?? Expression.Constant(null, typeof(Action<TextWriter, object>)));
             }
-
-            var fb = new FunctionBuilder(CompilationContext.Configuration);
-            var partialBlockTemplate =
-                fb.Compile(pex.Fallback != null ? new[] {pex.Fallback} : Enumerable.Empty<Expression>(), bindingContext);
 
             var partialInvocation = Expression.Call(
 #if netstandard
-                new Func<string, BindingContext, HandlebarsConfiguration, Action<TextWriter, object>, bool>(InvokePartial).GetMethodInfo(),
+                new Action<string, BindingContext, HandlebarsConfiguration>(InvokePartialWithFallback).GetMethodInfo(),
 #else
-                new Func<string, BindingContext, HandlebarsConfiguration, Action<TextWriter, object>, bool>(InvokePartial).Method,
+                new Action<string, BindingContext, HandlebarsConfiguration>(InvokePartialWithFallback).Method,
 #endif
                 Expression.Convert(pex.PartialName, typeof(string)),
                 bindingContext,
-                Expression.Constant(CompilationContext.Configuration),
-                partialBlockTemplate);
+                Expression.Constant(CompilationContext.Configuration));
 
-            var fallback = pex.Fallback;
-            if (fallback == null)
-            {
-                fallback = Expression.Call(
-#if netstandard
-                new Action<string>(HandleFailedInvocation).GetMethodInfo(),
-#else
-                new Action<string>(HandleFailedInvocation).Method,
-#endif
-                Expression.Convert(pex.PartialName, typeof(string)));
-            }
-
-            return Expression.IfThen(
-                    Expression.Not(partialInvocation),
-                    fallback);
+            return partialInvocation;
         }
 
-        private static void HandleFailedInvocation(
-            string partialName)
+        private static void InvokePartialWithFallback(
+            string partialName,
+            BindingContext context,
+            HandlebarsConfiguration configuration)
         {
-            throw new HandlebarsRuntimeException(
-                string.Format("Referenced partial name {0} could not be resolved", partialName));
+            if (!InvokePartial(partialName, context, configuration))
+            {
+                if (context.PartialBlockTemplate == null)
+                    throw new HandlebarsRuntimeException(
+                        string.Format("Referenced partial name {0} could not be resolved", partialName));
+
+                context.PartialBlockTemplate(context.TextWriter, context);
+            }
         }
 
         private static bool InvokePartial(
             string partialName,
             BindingContext context,
-            HandlebarsConfiguration configuration,
-            Action<TextWriter, object> partialBlockTemplate)
+            HandlebarsConfiguration configuration)
         {
-            var partialBindingContext = context as PartialBindingContext;
-            if (partialName.Equals(SpecialPartialBlockName) && partialBindingContext != null)
+            if (partialName.Equals(SpecialPartialBlockName))
             {
-                if (partialBindingContext.PartialBlockTemplate == null)
+                if (context.PartialBlockTemplate == null)
                 {
                     return false;
                 }
 
-                partialBindingContext.PartialBlockTemplate(context.TextWriter, context);
+                context.PartialBlockTemplate(context.TextWriter, context);
                 return true;
             }
-
-            context = new PartialBindingContext(context)
-            {
-                PartialBlockTemplate = partialBlockTemplate
-            };
 
             //if we have an inline partial, skip the file system and RegisteredTemplates collection
             if (context.InlinePartialTemplates.ContainsKey(partialName))
@@ -114,7 +103,6 @@ namespace HandlebarsDotNet.Compiler
                 return true;
             }
 
-            
             if (configuration.RegisteredTemplates.ContainsKey(partialName) == false)
             {
                 if (configuration.FileSystem != null && context.TemplatePath != null)
@@ -153,26 +141,6 @@ namespace HandlebarsDotNet.Compiler
                     $"Runtime error while rendering partial '{partialName}', see inner exception for more information",
                     exception);
             }
-
-        }
-
-        private class PartialBindingContext : BindingContext
-        {
-            public PartialBindingContext(BindingContext context)
-                : base(context.Value, context.TextWriter, context.ParentContext, context.TemplatePath, context)
-            {
-            }
-
-            public Action<TextWriter, object> PartialBlockTemplate { get; set; }
-
-            public override BindingContext CreateChildContext(object value)
-            {
-                return new PartialBindingContext(base.CreateChildContext(value))
-                {
-                    PartialBlockTemplate = PartialBlockTemplate
-                };
-            }
         }
     }
 }
-

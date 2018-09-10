@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Xunit;
 using System.IO;
@@ -181,6 +181,34 @@ namespace HandlebarsDotNet.Test
 
             var result = template(null);
             Assert.Equal("Hello, 1 True!", result);
+        }
+   
+        [Fact]
+        public void BasicPartialWithSubExpressionParameters()
+        {
+            string source = "Hello, {{>person first=(_ first arg1=(_ \"value\")) last=(_ last)}}!";
+
+            Handlebars.RegisterHelper("_", (output, context, arguments) =>
+            {
+                output.Write(arguments[0].ToString());
+
+                if (arguments.Length > 1)
+                {
+                    var hash = arguments[1] as Dictionary<string, object>;
+                    output.Write(hash["arg1"]);
+                }
+            });
+            var template = Handlebars.Compile(source);
+
+            var partialSource = "{{first}} {{last}}";
+            using (var reader = new StringReader(partialSource))
+            {
+                var partialTemplate = Handlebars.Compile(reader);
+                Handlebars.RegisterTemplate("person", partialTemplate);
+            }
+
+            var result = template(new { first = 1, last = true });
+            Assert.Equal("Hello, 1value True!", result);
         }
 
         [Fact]
@@ -527,6 +555,33 @@ namespace HandlebarsDotNet.Test
             var result = template(data);
 
             Assert.Equal("Well, this is some test content that works great Pete Jones !", result);
+        }
+
+        [Fact]
+        public void BlockPartialWithNestedSpecialNamedPartial2()
+        {
+            string source = "A {{#>partial1}} B {{#>partial2}} {{VarC}} {{/partial2}} D {{/partial1}} E";
+
+            var template = Handlebars.Compile(source);
+
+            var partialSource1 = "1 {{> @partial-block }} 2";
+            using (var reader = new StringReader(partialSource1))
+            {
+                var partialTemplate = Handlebars.Compile(reader);
+                Handlebars.RegisterTemplate("partial1", partialTemplate);
+            }
+
+            var partialSource2 = "3 {{> @partial-block }} 4";
+            using (var reader = new StringReader(partialSource2))
+            {
+                var partialTemplate = Handlebars.Compile(reader);
+                Handlebars.RegisterTemplate("partial2", partialTemplate);
+            }
+
+            var data = new { VarC = "C" };
+            var result = template(data);
+
+            Assert.Equal("A 1  B 3  C  4 D  2 E", result);
         }
 
         [Fact]

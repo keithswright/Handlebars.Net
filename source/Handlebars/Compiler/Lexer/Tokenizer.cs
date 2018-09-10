@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -74,6 +74,13 @@ namespace HandlebarsDotNet.Compiler.Lexer
                     if (token != null)
                     {
                         yield return token;
+
+                        if ((char)source.Peek() == '=')
+                        {
+                            source.Read();
+                            yield return Token.Assignment();
+                            continue;
+                        }
                     }
                     if ((char)node == '}' && (char)source.Read() == '}')
                     {
@@ -113,7 +120,13 @@ namespace HandlebarsDotNet.Compiler.Lexer
                 }
                 else
                 {
-                    if ((char)node == '\\' && (char)source.Peek() == '{')
+                    if ((char)node == '\\' && (char)source.Peek() == '\\')
+                    {
+                        source.Read();
+                        buffer.Append('\\');
+                        node = source.Read();
+                    }
+                    else if ((char)node == '\\' && (char)source.Peek() == '{')
                     {
                         source.Read();
                         if ((char)source.Peek() == '{')

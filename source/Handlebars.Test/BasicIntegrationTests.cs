@@ -190,6 +190,18 @@ false
         }
 
         [Fact]
+        public void BasicCurliesWithEscapedLeadingSlash()
+        {
+            var source = @"Hello, \\{{name}}!";
+            var template = Handlebars.Compile(source);
+            var data = new {
+                name = "Handlebars.Net"
+            };
+            var result = template(data);
+            Assert.Equal(@"Hello, \Handlebars.Net!", result);
+        }
+
+        [Fact]
         public void BasicPathArray()
         {
             var source = "Hello, {{ names.[1] }}!";
@@ -950,6 +962,22 @@ false
 
             var result = template(data);
             Assert.Equal("2 3", result);
+        }
+
+        [Fact]
+        public void BasicNullLiteral()
+        {
+            string source = "{{eval null}}";
+
+            Handlebars.RegisterHelper("eval",
+                (writer, context, args) => writer.Write(args[0] == null));
+
+            var template = Handlebars.Compile(source);
+
+            var data = new { };
+
+            var result = template(data);
+            Assert.Equal("True", result);
         }
 
         [Fact]

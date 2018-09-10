@@ -61,7 +61,15 @@ namespace HandlebarsDotNet.Compiler
                     compiledView(innerWriter, vm);
                 }
                 var inner = sb.ToString();
-                compiledLayout(tw, new DynamicViewModel(new object[] { new { body = inner }, vm }));
+                if(vm is Dictionary<string, object>)
+                {
+                    ((Dictionary<string, object>)vm)["body"] = inner;
+                    compiledLayout(tw, vm);
+                }
+                else
+                {
+                    compiledLayout(tw, new DynamicViewModel(new object[] { new { body = inner }, vm }));
+                }
             };
         }
 
